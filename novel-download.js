@@ -32,8 +32,8 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @license      MIT
-// @require      https://cdn.bootcdn.net/ajax/libs/jquery/3.6.3/jquery.min.js
-// @require      https://cdn.bootcdn.net/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js
+// @require      https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.3/jquery.min.js
+// @require      https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js
 // @require      https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js
 // @downloadURL  https://raw.githubusercontent.com/wenshitaiyi/tmonkey-script-public/main/novel-download.js
 // @updateURL    https://raw.githubusercontent.com/wenshitaiyi/tmonkey-script-public/main/novel-download.js
