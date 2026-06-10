@@ -1,11 +1,14 @@
 // ==UserScript==
-// @name         抖音全能数据提取终端 (V4.0 终极修复版)
+// @name         Douyin Extract Panel
 // @namespace    http://tampermonkey.net/
-// @version      4.0
+// @version      4.1
 // @description  修复按钮失效、添加正序/逆序切换、修复Tab切换数据残留、恢复数量显示
-// @author       You
+// @author       wenshitaiyi
 // @match        *://www.douyin.com/*
 // @grant        none
+// @license      MIT
+// @downloadURL  https://raw.githubusercontent.com/wenshitaiyi/tmonkey-script-public/main/douyin-extract.js
+// @updateURL    https://raw.githubusercontent.com/wenshitaiyi/tmonkey-script-public/main/douyin-extract.js
 // ==/UserScript==
 
 (function() {

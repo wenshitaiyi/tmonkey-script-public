@@ -1,12 +1,15 @@
 // ==UserScript==
-// @name         Web AI 自动化任务面板 (V3.1 极致UI与布局修正版)
+// @name         Gemini Auto Task Panel
 // @namespace    http://tampermonkey.net/
-// @version      3.1
+// @version      3.2
 // @description  独立标签页运行、剪贴板导入导出、布局防挤压、状态栏固顶、防抖判定
-// @author       You & Gemini
+// @author       wenshitaiyi
 // @match        *://gemini.google.com/*
 // @match        *://chatgpt.com/*
 // @grant        GM_addStyle
+// @license      MIT 
+// @downloadURL  https://raw.githubusercontent.com/wenshitaiyi/tmonkey-script-public/main/gemini-auto-task.js
+// @updateURL    https://raw.githubusercontent.com/wenshitaiyi/tmonkey-script-public/main/gemini-auto-task.js
 // ==/UserScript==
 
 (function() {
@@ -352,7 +355,7 @@
         });
 
         aList.replaceChildren();
-        state.archives.slice(0, 5).forEach((t, i) => {
+        state.archives.forEach((t, i) => {
             const item = el('div', { className: 'task-item', style: 'font-size: 11px;' },
                 el('div', { className: 'task-content', title: t }, t),
                 el('div', {style: 'display:flex; gap: 4px;'},
