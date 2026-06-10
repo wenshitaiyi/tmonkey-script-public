@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gemini Auto Task Panel
 // @namespace    http://tampermonkey.net/
-// @version      3.2
+// @version      3.3
 // @description  独立标签页运行、剪贴板导入导出、布局防挤压、状态栏固顶、防抖判定
 // @author       wenshitaiyi
 // @match        *://gemini.google.com/*
