@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Novel Download
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
-// @description  小说下载，个人测试使用，主要是为了熟悉js的语法
+// @version      1.1.1
+// @description  小说下载，个人测试使用，主要是为了熟悉js的语法（测试更新）
 // @author       You
 // @match        https://www.xbiquge.bz/book/*
 // @match        https://hongxiue.com/*
