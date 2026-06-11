@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         Gemini Auto Task Panel
 // @namespace    http://tampermonkey.net/
-// @version      3.3
-// @description  独立标签页运行、剪贴板导入导出、布局防挤压、状态栏固顶、防抖判定
+// @version      3.5
+// @description  独立标签页运行、剪贴板导入导出、布局防挤压、状态栏固顶、防抖判定（完美适配2026最新Gemini富文本输入框）
 // @author       wenshitaiyi
 // @match        *://gemini.google.com/*
 // @match        *://chatgpt.com/*
 // @grant        GM_addStyle
-// @license      MIT 
+// @license      MIT
 // @downloadURL  https://raw.githubusercontent.com/wenshitaiyi/tmonkey-script-public/main/gemini-auto-task.js
 // @updateURL    https://raw.githubusercontent.com/wenshitaiyi/tmonkey-script-public/main/gemini-auto-task.js
 // ==/UserScript==
@@ -16,17 +16,25 @@
     'use strict';
 
     // ==========================================
-    // 1. 核心配置与选择器
+    // 1. 核心配置与选择器（根据最新HTML特征重构）
     // ==========================================
     const CONFIG = {
+        // 修改后：
         selectors: {
-            textarea: 'rich-textarea p, textarea',
-            sendBtn: '.send-button, button[aria-label="Send message"], button[data-testid="send-button"]',
-            generatingIndicator: 'mat-icon[fonticon="stop"], .generating-animation, button[aria-label="Stop generating"], button[data-testid="stop-button"], .result-streaming'
+            textareaCandidates: [
+                'div.ql-editor.textarea',
+                '[data-test-id="textarea-inner"] [contenteditable="true"]'
+            ],
+            // 发送按钮：直接锁定代表可提交状态的 .submit 类或 aria-label
+            sendBtn: 'gem-icon-button.send-button.submit, button[aria-label="发送"]',
+            // 容器判定：获取整个容器，用来辅助判定生命周期
+            sendContainer: '[data-test-id="send-button-container"]',
+            // 正在生成指示器：精确锁定带有 .stop 类的按钮，或内含 stop 属性的 mat-icon
+            generatingIndicator: 'gem-icon-button.send-button.stop, mat-icon[fonticon="stop"], button[aria-label="停止回答"]'
         },
         pollInterval: 1000,
-        cooldownRange: [4, 8], // 【调整】缩短冷却区间，提升整体响应节奏
-        stableConfirmTime: 6 
+        cooldownRange: [4, 8],
+        stableConfirmTime: 6
     };
 
     // ==========================================
@@ -39,7 +47,7 @@
     };
 
     const SEPARATOR = '\n/***********/\n';
-    
+
     function exportToClipboard(dataArray, typeName) {
         if (dataArray.length === 0) {
             alert(`没有可复制的${typeName}！`);
@@ -53,15 +61,40 @@
         });
     }
 
+    // 动态查找符合有效性验证的输入框
+    function findValidTextarea() {
+        for (const selector of CONFIG.selectors.textareaCandidates) {
+            const elements = document.querySelectorAll(selector);
+            for (const el of Array.from(elements)) {
+                // 1. 隔离安全区：排除脚本自身面板内部的输入框
+                if (el.closest('#auto-panel')) continue;
+
+                // 2. 增强版可见性校验：规避新版布局中 offsetParent 为 null 的特例坑
+                const rect = el.getBoundingClientRect();
+                const isVisible = rect.width > 0 && rect.height > 0 && window.getComputedStyle(el).display !== 'none';
+                if (!isVisible) continue;
+
+                // 3. 核心特征判定
+                const isEditable = el.getAttribute('contenteditable') === 'true';
+                const isTextAreaTag = el.tagName === 'TEXTAREA' || el.classList.contains('ql-editor');
+
+                if (isEditable || isTextAreaTag) {
+                    return el;
+                }
+            }
+        }
+        return null;
+    }
+
     // ==========================================
     // 3. 状态机发送引擎
     // ==========================================
     const engine = {
-        step: 'IDLE', 
+        step: 'IDLE',
         cooldownTimer: 0,
         replyWaitTimer: 0,
         replyIdleTimer: 0,
-        hasStartedGenerating: false, 
+        hasStartedGenerating: false,
         statusText: '💤 闲置中',
 
         reset() {
@@ -90,18 +123,21 @@
                 return;
             }
 
-            const textarea = document.querySelector(CONFIG.selectors.textarea);
-            let sendBtn = document.querySelector(CONFIG.selectors.sendBtn);
+            const textarea = findValidTextarea();
+            const sendContainer = document.querySelector(CONFIG.selectors.sendContainer);
+            const sendBtn = document.querySelector(CONFIG.selectors.sendBtn);
             const isGenerating = document.querySelector(CONFIG.selectors.generatingIndicator);
 
             switch (this.step) {
                 case 'IDLE':
-                    if (isGenerating || (sendBtn && sendBtn.disabled)) {
+                    // 1. 优先使用最新特征判定 AI 是否正在生成
+                    if (isGenerating) {
                         this.setStatus('🤖 AI 正在生成，等待结束...');
                         return;
                     }
-                    if (!textarea || !sendBtn) {
-                        this.setStatus('⚠️ 找不到输入框');
+                    // 2. 闲置阶段只需确保输入框挂载成功即可，不再强求发送按钮必须存在
+                    if (!textarea) {
+                        this.setStatus('⚠️ 找不到聊天输入框');
                         return;
                     }
                     this.setStatus('✍️ 准备填入数据...');
@@ -120,30 +156,37 @@
                     break;
 
                 case 'WAITING_BTN':
-                    sendBtn = document.querySelector(CONFIG.selectors.sendBtn);
-                    if (!sendBtn) return;
+                    // 3. 将发送按钮的捕获完全移到此阶段。文字填入后，Angular 框架通常需要 0.5s~1s 渲染并挂载按钮
+                    const activeSendBtn = document.querySelector(CONFIG.selectors.sendBtn);
 
-                    if (sendBtn.disabled) {
-                        this.setStatus('⏳ 网页分析中，等待发送按钮亮起...');
-                    } else {
-                        this.setStatus('🚀 发送！');
-                        sendBtn.click();
-
-                        const doneTask = state.tasks.shift();
-                        state.archives.unshift(doneTask);
-                        if (state.archives.length > 50) state.archives.pop();
-
-                        renderUI();
-
-                        this.replyWaitTimer = 0;
-                        this.replyIdleTimer = 0;
-                        this.hasStartedGenerating = false;
-                        this.step = 'WAITING_REPLY';
+                    if (!activeSendBtn) {
+                        this.setStatus('⏳ 框架同步中，等待发送按钮挂载...');
+                        // 密集派发 input 事件，强行激活 Angular 的变更检测机制以挂载按钮
+                        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                        return;
                     }
+
+                    this.setStatus('🚀 发送！');
+                    // 兼容处理：触发外层组件点击，若有原生内层 button 则优先点击内层
+                    const nativeBtn = activeSendBtn.querySelector('button') || activeSendBtn;
+                    nativeBtn.click();
+
+                    // 维护任务队列状态
+                    const doneTask = state.tasks.shift();
+                    state.archives.unshift(doneTask);
+                    if (state.archives.length > 50) state.archives.pop();
+
+                    renderUI();
+
+                    this.replyWaitTimer = 0;
+                    this.replyIdleTimer = 0;
+                    this.hasStartedGenerating = false;
+                    this.step = 'WAITING_REPLY';
                     break;
 
                 case 'WAITING_REPLY':
-                    const isBusy = isGenerating || (sendBtn && sendBtn.disabled);
+                    // 核心修改：通过判断是否存在具有 .stop 类的按钮或特定标签来作为 Busy 信号
+                    const isBusy = !!isGenerating;
 
                     if (isBusy) {
                         this.hasStartedGenerating = true;
@@ -159,7 +202,7 @@
                             }
                         } else {
                             this.replyWaitTimer += (CONFIG.pollInterval / 1000);
-                            if (this.replyWaitTimer > 8) { 
+                            if (this.replyWaitTimer > 8) {
                                 this.step = 'COOLDOWN_INIT';
                             } else {
                                 this.setStatus('⏳ 等待 AI 开始响应...');
@@ -190,23 +233,33 @@
     function simulateInput(element, text) {
         if (!element) return false;
         element.focus();
-        if (element.contentEditable === 'true' || element.tagName === 'P') {
-            element.textContent = text;
+
+        // 针对新版 ql-editor 富文本容器，必须清理内部结构并更新 innerText
+        if (element.getAttribute('contenteditable') === 'true' || element.classList.contains('ql-editor')) {
+            element.innerText = text;
+            // 针对某些极端的双向绑定，强行对内部段落进行二次兜底
+            const innerP = element.querySelector('p');
+            if (innerP) innerP.innerText = text;
         } else {
             const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
             if (nativeSetter) nativeSetter.call(element, text);
             else element.value = text;
         }
+
+        // 派发整套合成事件，冲破底层 Angular 的状态缓存
+        element.dispatchEvent(new Event('compositionstart', { bubbles: true }));
         element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('compositionend', { bubbles: true }));
         element.dispatchEvent(new Event('change', { bubbles: true }));
         element.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: ' ', keyCode: 32 }));
+
         return true;
     }
 
     setInterval(() => engine.tick(), CONFIG.pollInterval);
 
     // ==========================================
-    // 4. 原生 UI 构建 (Flexbox 布局重构)
+    // 4. 原生 UI 构建
     // ==========================================
     GM_addStyle(`
         #auto-panel { position: fixed; top: 20px; right: 20px; width: 340px; background: #fff; border: 1px solid #ccc; box-shadow: 0 8px 24px rgba(0,0,0,0.2); border-radius: 8px; z-index: 999999; font-family: sans-serif; font-size: 13px; color: #333; display: flex; flex-direction: column; max-height: 85vh; resize: both; overflow: hidden; transition: width 0.3s, height 0.3s; }
@@ -215,19 +268,10 @@
         #auto-panel.minimized #auto-header-title, #auto-panel.minimized #toggle-run-btn { display: none; }
         #auto-panel.minimized #dock-btn { width: 100%; height: 100%; border-radius: 0; }
 
-        /* 面板头部 */
         #auto-header { flex-shrink: 0; padding: 10px; background: #f8f9fa; border-bottom: 1px solid #ddd; cursor: move; display: flex; justify-content: space-between; align-items: center; user-select: none; }
-        
-        /* 核心布局修复：Body 设为 Flex 列容器，隔离上下区域 */
         #auto-body { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
-
-        /* 状态栏：固定高度，渐变背景，精美阴影 */
         #auto-status-text { flex-shrink: 0; background: linear-gradient(90deg, #e8f0fe, #d2e3fc); color: #1967d2; padding: 8px 10px; font-weight: bold; text-align: center; border-bottom: 1px solid #c2e7ff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); text-shadow: 0 1px 1px rgba(255,255,255,0.5); font-size: 12px;}
-        
-        /* 输入区：固定高度，不被压缩 */
         #auto-input-section { flex-shrink: 0; padding: 10px; background: #fff; border-bottom: 1px solid #eee; z-index: 1;}
-        
-        /* 列表区：占据剩余空间，独立滚动 */
         #auto-list-section { flex: 1; overflow-y: auto; padding: 10px; }
 
         .auto-btn { padding: 5px 10px; border: none; border-radius: 4px; cursor: pointer; color: #fff; background: #0b57d0; font-size: 12px; transition: 0.2s;}
@@ -254,7 +298,7 @@
             if (k === 'className') element.className = v;
             else if (k === 'style') element.style.cssText = v;
             else if (k === 'onclick') element.addEventListener('click', v);
-            else element.setAttribute(k, v); 
+            else element.setAttribute(k, v);
         }
         children.forEach(child => {
             if (typeof child === 'string' || typeof child === 'number') element.appendChild(document.createTextNode(child));
@@ -270,25 +314,23 @@
     const headerTitle = el('span', { id: 'auto-header-title', style: 'font-weight:bold;' }, '🚀 AI 自动化');
     const header = el('div', { id: 'auto-header' }, headerTitle, el('div', {style: 'display:flex; gap: 8px;'}, toggleRunBtn, dockBtn));
 
-    // 【修改】重构后的 DOM 结构
     const statusBar = el('div', { id: 'auto-status-text' }, engine.statusText);
 
     const taskInput = el('textarea', {
         id: 'auto-task-input',
-        placeholder: '输入任务。\n• 单个任务：直接点【添加任务】\n• 批量任务：任务间独占一行输入 /***********/ (至少10个*)，点【批量添加】\n• 导入功能：粘贴复制的任务代码，点【批量添加】'
+        placeholder: '输入任务。\n• 单个任务：直接点【添加任务】\n• 批量任务：任务间独占一行输入 /***********/ (至少10个*)，点【批量添加】'
     });
 
     const addBtn = el('button', { className: 'auto-btn', style: 'flex:1;', onclick: () => addTask(false) }, '添加任务');
-    const addBatchBtn = el('button', { className: 'auto-btn outline', onclick: () => addTask(true), title: '可用作解析复制的批量任务' }, '按分隔符批量添加');
+    const addBatchBtn = el('button', { className: 'auto-btn outline', onclick: () => addTask(true) }, '按分隔符批量添加');
     const inputArea = el('div', { style: 'display:flex; gap:5px;' }, addBtn, addBatchBtn);
-    
-    // 【修改】输入区被单独包装，防止挤压
+
     const inputSection = el('div', { id: 'auto-input-section' }, taskInput, inputArea);
 
     const qHeader = el('div', { className: 'section-header' },
         el('span', {}, '待执行队列 (', el('span', {id: 'q-count'}, '0'), ')'),
         el('div', { className: 'btn-group' },
-            el('button', { className: 'auto-btn outline icon', onclick: () => exportToClipboard(state.tasks, '任务队列'), title: '导出全部排队任务' }, '📋 复制'),
+            el('button', { className: 'auto-btn outline icon', onclick: () => exportToClipboard(state.tasks, '任务队列') }, '📋 复制'),
             el('button', { className: 'auto-btn danger icon', onclick: () => { if(confirm('清空队列？')){ state.tasks = []; renderUI(); } } }, '✖ 清空')
         )
     );
@@ -297,13 +339,12 @@
     const aHeader = el('div', { className: 'section-header', style: 'margin-top: auto;' },
         el('span', {}, '已归档记录'),
         el('div', { className: 'btn-group' },
-            el('button', { className: 'auto-btn outline icon', onclick: () => exportToClipboard(state.archives, '归档记录'), title: '导出已执行完的任务' }, '📋 复制'),
+            el('button', { className: 'auto-btn outline icon', onclick: () => exportToClipboard(state.archives, '归档记录') }, '📋 复制'),
             el('button', { className: 'auto-btn danger icon', onclick: () => { if(confirm('清空归档？')){ state.archives = []; renderUI(); } } }, '✖ 清空')
         )
     );
     const aList = el('div', { className: 'task-list', style: 'opacity: 0.8;' });
 
-    // 【修改】列表区被单独包装，支持独立滚动
     const listSection = el('div', { id: 'auto-list-section' }, qHeader, qList, aHeader, aList);
 
     const body = el('div', { id: 'auto-body' }, statusBar, inputSection, listSection);
