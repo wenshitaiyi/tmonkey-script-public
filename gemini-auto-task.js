@@ -7,6 +7,7 @@
 // @match        *://gemini.google.com/*
 // @match        *://chatgpt.com/*
 // @grant        GM_addStyle
+// @require      https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js
 // @license      MIT
 // @downloadURL  https://raw.githubusercontent.com/wenshitaiyi/tmonkey-script-public/main/gemini-auto-task.js
 // @updateURL    https://raw.githubusercontent.com/wenshitaiyi/tmonkey-script-public/main/gemini-auto-task.js
@@ -309,7 +310,16 @@
 
     const panel = el('div', { id: 'auto-panel' });
 
-    const dockBtn = el('button', { id: 'dock-btn', className: 'auto-btn outline icon', onclick: toggleDock, title: '折叠面板' }, '🗕');
+    
+    // 创建一个 Font Awesome 的减号图标
+    const dockIcon = el('i', { className: 'fas fa-minus' }); 
+    const dockBtn = el('button', { 
+        id: 'dock-btn', 
+        className: 'auto-btn outline icon', 
+        onclick: toggleDock, 
+        title: '折叠/展开面板' 
+    }, dockIcon); // 把图标塞进按钮
+
     const toggleRunBtn = el('button', { id: 'toggle-run-btn', className: 'auto-btn success', onclick: toggleRun }, '开始执行');
     const headerTitle = el('span', { id: 'auto-header-title', style: 'font-weight:bold;' }, '🚀 AI 自动化');
     const header = el('div', { id: 'auto-header' }, headerTitle, el('div', {style: 'display:flex; gap: 8px;'}, toggleRunBtn, dockBtn));
@@ -363,7 +373,18 @@
 
     function toggleDock() {
         panel.classList.toggle('minimized');
-        dockBtn.textContent = panel.classList.contains('minimized') ? '🗖' : '🗕';
+        
+        // 重新获取按钮内部的图标节点（兼容被 Font Awesome 替换成 svg 的情况）
+        const iconNode = dockBtn.querySelector('i, svg');
+        if (iconNode) {
+            if (panel.classList.contains('minimized')) {
+                // 最小化状态：显示加号 (展开)
+                iconNode.setAttribute('class', 'fas fa-plus');
+            } else {
+                // 正常状态：显示减号 (折叠)
+                iconNode.setAttribute('class', 'fas fa-minus');
+            }
+        }
     }
 
     function addTask(isBatch) {
