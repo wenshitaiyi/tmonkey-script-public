@@ -25,6 +25,7 @@
 // @match        https://www.ynfdkj.com/biquge/*
 // @match        https://www.82xs.com/bqg/*
 // @match        https://www.82xs.com/index/*
+// @match        https://3tb4weatuybs.blog.fc2.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=ixunshu.net
 // @grant        GM_registerMenuCommand
 // @grant        GM_unregisterMenuCommand
@@ -35,6 +36,7 @@
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.3/jquery.min.js
 // @require      https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js
 // @require      https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js
+// @require      https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js
 // @downloadURL  https://raw.githubusercontent.com/wenshitaiyi/tmonkey-script-public/main/novel-download.js
 // @updateURL    https://raw.githubusercontent.com/wenshitaiyi/tmonkey-script-public/main/novel-download.js
 // ==/UserScript==
@@ -583,7 +585,6 @@ async function fun_downloadNovel()
         failedList = await fun_downloadChapterUrlList(failedList);
         iDownloadBatch += 1;
     }
-
 
     //内容拼接
     let allContents = g_bookHeader.join('\n') + g_paragraphList.join('\n');
@@ -2529,6 +2530,131 @@ function fun_downloadConfig()
                       .replace(/请勿开启浏览器阅读模式.*?\\n/g, '')
                       .replace(/相邻推荐.*?\\n/g, '')
                       .replace(/花有重开日.*?\\n/g, '');
+        });
+    }
+    // [FC2 博客 - 猫と柿] 针对单页无列表小说的支持
+    else if(fun_checkWebset(url, 'https://3tb4weatuybs\\.blog\\.fc2\\.com/blog-entry-.*\\.html'))
+    {
+        console.log("激活 FC2 博客单页小说下载规则");
+
+        // local config
+        {
+            g_bTestDownload = false;    // 是否测试下载
+            g_bTestGetChapter = false;  // 是否测试获取章节
+            g_iMaxPromiseCount = 1;     // 单页只需要请求 1 次（即当前页本身）
+            g_batchSleep = 0;           // 不需要批次睡眠
+        }
+
+        // 1. 插入下载按钮
+        g_ctrlMap.set(rule_appendDownloadBtn, function(newButton){
+            // 将下载按钮插入到文章标题下方的 entry-header-inner 区域
+            let $headerInner = $('.entry-header-inner');
+            if ($headerInner.length > 0) {
+                $headerInner.append(newButton);
+                // 简单加点样式让按钮在这个博客里好看一点（可选）
+                newButton.css({
+                    "margin-left": "15px",
+                    "padding": "2px 10px",
+                    "background": "#b89b7a",
+                    "color": "#fff",
+                    "border": "none",
+                    "border-radius": "4px",
+                    "cursor": "pointer"
+                });
+                return true;
+            }
+            return false;
+        });
+
+        // 2. 获取书名与作者
+        g_ctrlMap.set(rule_novelSaveName, [
+            function(){
+                let fullTitle = $('meta[property="og:title"]').attr('content') || $('title').text();
+                let bookNameMatch = fullTitle.match(/《(.*?)》/);
+                let name = bookNameMatch ? bookNameMatch[1] : fullTitle;
+                // 确保文件名也经由 OpenCC 转换为简体
+                if (typeof OpenCC !== 'undefined' && OpenCC.Converter) {
+                    return OpenCC.Converter({ from: 'tw', to: 'cn' })(name);
+                }
+                return name;
+            },
+            function(){
+                let fullTitle = $('meta[property="og:title"]').attr('content') || $('title').text();
+                let authorMatch = fullTitle.match(/by\s+(.+?)($|｜)/);
+                let author = authorMatch ? authorMatch[1].trim() : "未知作者";
+                if (typeof OpenCC !== 'undefined' && OpenCC.Converter) {
+                    return OpenCC.Converter({ from: 'tw', to: 'cn' })(author);
+                }
+                return author;
+            }
+        ]);
+
+        // 3. 核心修改：由于整本书就在这一页，章节列表就是“当前页自身”
+        g_ctrlMap.set(rule_getChapterListMode, fun_getChapterListFromCurPage);
+        g_ctrlMap.set(rule_getChapterListFromCurPage, function(){
+            // 直接把当前页面的全链接塞入队列，作为唯一的“下载源”
+            g_chapterURLList.push(window.location.href);
+        });
+
+        // 4. 获取这一页的全部小说正文
+        g_ctrlMap.set(rule_getChapterContentMode, fun_getChapterContenFromOnePage);
+        // 此站无须提取单独的“章节标题”，直接返回空（正文开头自带了第1章等字样）
+        g_ctrlMap.set(rule_getChapterTitle, function($data){ return ''; }); 
+        // 指定主体内容容器
+        g_ctrlMap.set(rule_getChapterContentContainer, function($data){
+            return $data.find('.inner-contents');
+        });
+        // 从容器中提取所有的段落
+        g_ctrlMap.set(rule_getChapterLinesFromContainer, function($container){
+            let lines = [];
+            
+            // 复制一个克隆体用来操作，防止删除干扰原网页
+            let $clone = $container.clone();
+            // 移除不需要的 FC2 拍手标签和一些可能存在的非正文组件
+            $clone.find('script, a, iframe, div[id*="clap"], .entry-tag').remove();
+            
+            // 使用 html 并通过替换 <br> 换行符来切分段落，可以完美保留原排版
+            let htmlContent = $clone.html() || '';
+            // 将所有 <br> 或 <br/> 替换成统一的换行标识符，然后按换行符切割
+            let RawLines = htmlContent.replace(/<br\s*\/?>/gi, '\n').split('\n');
+
+            let totalLines = RawLines.length;
+            let currentLine = 0;
+            let lastPercent = -1; // 用于记录上一次打印的百分比整数
+
+            console.log(`开始清洗正文文本，总原始行数: ${totalLines}`);
+            
+            RawLines.forEach(function(line) {
+
+                currentLine++;
+
+                // 计算当前进度的百分比整数 (0 到 100)
+                let currentPercent = Math.floor((currentLine / totalLines) * 100);
+
+                // 只有当百分比整数增长时，才打印进度
+                if (currentPercent > lastPercent) {
+                    console.log(`正文文本清洗进度: ${currentPercent}% (${currentLine}/${totalLines} 行)`);
+                    lastPercent = currentPercent; // 更新记录点
+                }
+                
+                // 利用 jQuery 的 text() 剥离残留的 HTML 标签（如 <font>, <strong>, <span> 等）
+                let cleanText = $('<div>').html(line).text().trim();
+                
+                // 过滤掉沉余信息：如翻译插件加载提示、空白行
+                if (cleanText && 
+                    !cleanText.includes('送出拍手') && 
+                    !cleanText.includes('缺的章節已補') && 
+                    !cleanText.includes('番外更新') &&
+                    !cleanText.includes('文案：')) {
+
+                   // 【核心改动】如果繁转简库可用，直接将本行文本转为简体
+                   if (typeof OpenCC !== 'undefined' && OpenCC.Converter) {
+                        cleanText = OpenCC.Converter({ from: 'tw', to: 'cn' })(cleanText);
+                    }
+                    lines.push(cleanText);
+                }
+            });
+            return lines;
         });
     }
     else{
