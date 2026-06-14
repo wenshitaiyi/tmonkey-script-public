@@ -1,12 +1,11 @@
 // ==UserScript==
 // @name         Gemini Auto Task Panel
 // @namespace    http://tampermonkey.net/
-// @version      3.6.2
-// @description  独立标签页运行、剪贴板导入导出、布局防挤压、状态栏固顶、防抖判定（完美适配2026最新Gemini富文本输入框）
+// @version      3.7.0
+// @description  独立标签页运行、剪贴板导入导出、布局防挤压、状态栏固顶、防抖判定（完美适配2026最新Gemini富文本输入框与全平台Unicode图标）
 // @author       wenshitaiyi
 // @match        *://gemini.google.com/*
 // @grant        GM_addStyle
-// @require      https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js
 // @license      MIT
 // @downloadURL  https://raw.githubusercontent.com/wenshitaiyi/tmonkey-script-public/main/gemini-auto-task.js
 // @updateURL    https://raw.githubusercontent.com/wenshitaiyi/tmonkey-script-public/main/gemini-auto-task.js
@@ -19,8 +18,8 @@
     // 1. 核心配置与选择器（根据最新HTML特征重构）
     // ==========================================
     const CONFIG = {
-        // 修改后：
         selectors: {
+            // 优先匹配最新版包含 ql-editor 和 textarea 类的可编辑div
             textareaCandidates: [
                 'div.ql-editor.textarea',
                 '[data-test-id="textarea-inner"] [contenteditable="true"]'
@@ -124,7 +123,6 @@
             }
 
             const textarea = findValidTextarea();
-            const sendContainer = document.querySelector(CONFIG.selectors.sendContainer);
             const sendBtn = document.querySelector(CONFIG.selectors.sendBtn);
             const isGenerating = document.querySelector(CONFIG.selectors.generatingIndicator);
 
@@ -135,7 +133,7 @@
                         this.setStatus('🤖 AI 正在生成，等待结束...');
                         return;
                     }
-                    // 2. 闲置阶段只需确保输入框挂载成功即可，不再强求发送按钮必须存在
+                    // 2. 闲置阶段只需确保输入框挂载成功即可，解耦发送按钮的初始化强绑定
                     if (!textarea) {
                         this.setStatus('⚠️ 找不到聊天输入框');
                         return;
@@ -156,7 +154,7 @@
                     break;
 
                 case 'WAITING_BTN':
-                    // 3. 将发送按钮的捕获完全移到此阶段。文字填入后，Angular 框架通常需要 0.5s~1s 渲染并挂载按钮
+                    // 3. 将发送按钮的捕获移到此阶段。文字填入后，Angular 框架通常需要时间响应渲染并挂载按钮
                     const activeSendBtn = document.querySelector(CONFIG.selectors.sendBtn);
 
                     if (!activeSendBtn) {
@@ -309,15 +307,13 @@
 
     const panel = el('div', { id: 'auto-panel' });
 
-    
-    // 创建一个 Font Awesome 的减号图标
-    const dockIcon = el('i', { className: 'fas fa-minus' }); 
-    const dockBtn = el('button', { 
-        id: 'dock-btn', 
-        className: 'auto-btn outline icon', 
-        onclick: toggleDock, 
-        title: '折叠/展开面板' 
-    }, dockIcon); // 把图标塞进按钮
+    // 初始化最小化控制按钮：默认展开状态，显示朝下的全角几何箭头 ▼ 提示可收起
+    const dockBtn = el('button', {
+        id: 'dock-btn',
+        className: 'auto-btn outline icon',
+        onclick: toggleDock,
+        title: '折叠/展开面板'
+    }, '▼');
 
     const toggleRunBtn = el('button', { id: 'toggle-run-btn', className: 'auto-btn success', onclick: toggleRun }, '开始执行');
     const headerTitle = el('span', { id: 'auto-header-title', style: 'font-weight:bold;' }, '🚀 AI 自动化');
@@ -372,18 +368,8 @@
 
     function toggleDock() {
         panel.classList.toggle('minimized');
-        
-        // 重新获取按钮内部的图标节点（兼容被 Font Awesome 替换成 svg 的情况）
-        const iconNode = dockBtn.querySelector('i, svg');
-        if (iconNode) {
-            if (panel.classList.contains('minimized')) {
-                // 最小化状态：显示加号 (展开)
-                iconNode.setAttribute('class', 'fas fa-plus');
-            } else {
-                // 正常状态：显示减号 (折叠)
-                iconNode.setAttribute('class', 'fas fa-minus');
-            }
-        }
+        // 最小化状态动态切换：收起时指向 ▼ 提示可向上展开，展开时指向 ▲
+        dockBtn.textContent = panel.classList.contains('minimized') ? '▼' : '▲';
     }
 
     function addTask(isBatch) {
