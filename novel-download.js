@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novel Download
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
+// @version      1.1.2
 // @description  小说下载，个人测试使用，主要是为了熟悉js的语法（测试更新）
 // @author       You
 // @match        https://www.xbiquge.bz/book/*
@@ -2636,7 +2636,7 @@ function fun_downloadConfig()
                     console.log(`正文文本清洗进度: ${currentPercent}% (${currentLine}/${totalLines} 行)`);
                     lastPercent = currentPercent; // 更新记录点
                 }
-                
+
                 // 利用 jQuery 的 text() 剥离残留的 HTML 标签（如 <font>, <strong>, <span> 等）
                 let cleanText = $('<div>').html(line).text().trim();
                 
